@@ -1,0 +1,27 @@
+{
+  "name": "obsidian-boox-sync",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sky150/obsidian-boox-sync.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/sky150/obsidian-boox-sync/issues"
+  },
+  "homepage": "https://github.com/sky150/obsidian-boox-sync#readme",
+  "devDependencies": {
+    "builtin-modules": "^5.0.0",
+    "esbuild": "^0.27.4",
+    "obsidian": "^1.12.3",
+    "typescript": "^6.0.2"
+  }
+}

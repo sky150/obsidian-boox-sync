@@ -228,8 +228,8 @@ class BooxSyncSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "Boox Sync Settings" });
-    containerEl.createEl("p", {
+    containerEl.createEl("h1", { text: "Boox Sync Settings" });
+    containerEl.createEl("span", {
       text: "Make sure BooxDrop is enabled on your device and both devices are on the same WiFi network.",
       cls: "setting-item-description",
     });
@@ -305,7 +305,7 @@ class BooxSyncSettingTab extends PluginSettingTab {
       );
 
     // Test connection button
-    containerEl.createEl("h3", { text: "Connection" });
+    containerEl.createEl("h2", { text: "Connection" });
     new Setting(containerEl)
       .setName("Test Connection")
       .setDesc("Check if your Boox device is reachable on the current network.")
@@ -325,8 +325,8 @@ class BooxSyncSettingTab extends PluginSettingTab {
           btn.setButtonText("Test").setDisabled(false);
           new Notice(
             ok
-              ? `✓ Connected to ${this.plugin.settings.booxIp}:${this.plugin.settings.booxPort}`
-              : `✗ Cannot reach device. Is BooxDrop active?`,
+              ? `Connected to ${this.plugin.settings.booxIp}:${this.plugin.settings.booxPort}`
+              : `Cannot reach device. Is BooxDrop active?`,
             5000,
           );
         }),
@@ -338,8 +338,8 @@ class BooxSyncSettingTab extends PluginSettingTab {
     [
       "On your Boox: open a note → top-right menu → Export → choose PDF (Vector).",
       `Save the exported PDF to the folder you configured above (default: note/obsidian-sync/).`,
-      "On your PC: make sure BooxDrop is active on the device.",
-      'Click the tablet icon in the Obsidian ribbon, or run the "Sync Boox Notes" command.',
+      "On your Boox Tablet make sure BooxDrop is active.",
+      'Click the "Sync Boox Notes" Button to start the process.',
       "Select which notes to sync in the dialog and click Sync Selected.",
     ].forEach((step) => steps.createEl("li", { text: step }));
   }
