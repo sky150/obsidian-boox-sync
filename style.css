@@ -1,0 +1,75 @@
+/* Boox Sync Plugin Styles */
+
+.boox-sync-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+}
+
+.boox-sync-item:last-child {
+  border-bottom: none;
+}
+
+.boox-sync-item input[type="checkbox"] {
+  margin-top: 3px;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--interactive-accent);
+}
+
+.boox-sync-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.boox-sync-name {
+  font-size: var(--font-ui-small);
+  font-weight: 500;
+  color: var(--text-normal);
+  word-break: break-word;
+}
+
+.boox-sync-meta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.boox-sync-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  width: fit-content;
+}
+
+.boox-sync-badge-new {
+  background-color: var(--color-green);
+  color: white;
+}
+
+.boox-sync-badge-changed {
+  background-color: var(--color-orange);
+  color: white;
+}
+
+.boox-sync-summary {
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.boox-sync-empty {
+  color: var(--text-muted);
+  font-style: italic;
+}

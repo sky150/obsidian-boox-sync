@@ -6,10 +6,11 @@
 
 export interface BooxFile {
   name: string;
-  path: string; // absolute path on device e.g. /storage/emulated/0/note/obsidian-sync/MyNote.pdf
+  path: string; // absolute path on device e.g. /storage/emulated/0/note/MyFolder/MyNote.pdf
   size: number;
   updatedAt: number; // unix timestamp in ms
   dir: boolean;
+  notebookFolder?: string; // human-readable subfolder name, e.g. "MyFolder"
 }
 
 export interface BooxStorageResponse {
@@ -31,10 +32,10 @@ export class BooxClient {
   }
 
   /**
-   * List all files in a directory on the Boox device.
-   * Uses /api/storage endpoint with dir param.
+   * List contents of a single directory (files + subdirs).
+   * Internal helper used by listAllNotes.
    */
-  async listFiles(dir: string): Promise<BooxFile[]> {
+  private async listDir(dir: string): Promise<BooxFile[]> {
     const args = JSON.stringify({
       dir,
       limit: 200,
@@ -47,20 +48,49 @@ export class BooxClient {
     const url = `${this.baseUrl}/api/storage?args=${encodeURIComponent(args)}`;
     const response = await fetch(url);
 
-    if (!response.ok) {
-      throw new Error(`BooxDrop returned ${response.status} for dir: ${dir}`);
-    }
+    if (!response.ok) return [];
 
     const json: BooxStorageResponse = await response.json();
+    if (!json.successful) return [];
 
-    if (!json.successful) {
-      throw new Error(`BooxDrop API error (code ${json.code}) for dir: ${dir}`);
+    return json.data.list;
+  }
+
+  /**
+   * Recursively find all exported PDFs under the notes root.
+   * True DFS — goes into every subfolder no matter how deep.
+   * notebookFolder tracks the full relative path, e.g. "Work/Meetings/Q1"
+   */
+  async listAllNotes(notesRoot: string): Promise<BooxFile[]> {
+    const allPdfs: BooxFile[] = [];
+    await this.traverseDir(notesRoot, "", allPdfs);
+    return allPdfs;
+  }
+
+  private async traverseDir(
+    absoluteDir: string,
+    relativePath: string,
+    accumulator: BooxFile[],
+  ): Promise<void> {
+    const entries = await this.listDir(absoluteDir);
+
+    for (const entry of entries) {
+      // Build absolute path ourselves — don't rely on entry.path for dirs
+      const entryAbsPath = absoluteDir + "/" + entry.name;
+
+      if (entry.dir) {
+        const childRelative = relativePath
+          ? relativePath + "/" + entry.name
+          : entry.name;
+        await this.traverseDir(entryAbsPath, childRelative, accumulator);
+      } else if (/\.(pdf|png)$/i.test(entry.name)) {
+        accumulator.push({
+          ...entry,
+          path: entry.path || entryAbsPath,
+          notebookFolder: relativePath,
+        });
+      }
     }
-
-    // Return only files (not subdirectories), only PDFs
-    return json.data.list.filter(
-      (f) => !f.dir && f.name.toLowerCase().endsWith(".pdf"),
-    );
   }
 
   /**

@@ -1,7 +1,6 @@
 /**
  * syncModal.ts
  * Shows a modal with checkboxes for new/changed notes.
- * User selects which ones to sync, then clicks "Sync Selected".
  */
 
 import { App, Modal, Setting, Notice } from "obsidian";
@@ -13,6 +12,124 @@ export interface SyncCandidate extends BooxFile {
 }
 
 export type SyncCallback = (selected: SyncCandidate[]) => Promise<void>;
+
+// Injected once into document.head — idempotent
+function injectStyles() {
+  const ID = "boox-sync-styles";
+  if (document.getElementById(ID)) return;
+  const el = document.createElement("style");
+  el.id = ID;
+  el.textContent = `
+		.boox-modal { padding: 4px 0; }
+
+		.boox-list {
+			display: flex;
+			flex-direction: column;
+			gap: 0;
+			margin: 8px 0;
+			border: 1px solid var(--background-modifier-border);
+			border-radius: 6px;
+			overflow: hidden;
+		}
+
+		.boox-item {
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			padding: 10px 14px;
+			border-bottom: 1px solid var(--background-modifier-border);
+			cursor: pointer;
+			transition: background 0.1s;
+		}
+
+		.boox-item:last-child { border-bottom: none; }
+		.boox-item:hover { background: var(--background-modifier-hover); }
+
+		.boox-item input[type="checkbox"] {
+			width: 16px;
+			height: 16px;
+			flex-shrink: 0;
+			cursor: pointer;
+			accent-color: var(--interactive-accent);
+		}
+
+		.boox-item-body {
+			display: flex;
+			flex-direction: column;
+			gap: 3px;
+			flex: 1;
+			min-width: 0;
+		}
+
+		.boox-item-top {
+			display: flex;
+			align-items: center;
+			gap: 7px;
+		}
+
+		.boox-badge {
+			font-size: 10px;
+			font-weight: 700;
+			text-transform: uppercase;
+			letter-spacing: 0.04em;
+			padding: 1px 6px;
+			border-radius: 3px;
+			flex-shrink: 0;
+		}
+
+		.boox-badge-new {
+			background: var(--color-green);
+			color: #fff;
+		}
+
+		.boox-badge-changed {
+			background: var(--color-orange);
+			color: #fff;
+		}
+
+		.boox-item-name {
+			font-size: var(--font-ui-small);
+			font-weight: 500;
+			color: var(--text-normal);
+			white-space: nowrap;
+			overflow: hidden;
+			text-overflow: ellipsis;
+		}
+
+		.boox-item-meta {
+			font-size: var(--font-ui-smaller);
+			color: var(--text-muted);
+		}
+
+		.boox-summary {
+			font-size: var(--font-ui-small);
+			color: var(--text-muted);
+			margin: 0 0 12px 0;
+		}
+
+		.boox-actions {
+			display: flex;
+			gap: 6px;
+			margin-bottom: 4px;
+		}
+
+		.boox-actions button {
+			font-size: var(--font-ui-smaller);
+			padding: 2px 10px;
+			border-radius: 4px;
+			border: 1px solid var(--background-modifier-border);
+			background: var(--background-secondary);
+			color: var(--text-muted);
+			cursor: pointer;
+		}
+
+		.boox-actions button:hover {
+			background: var(--background-modifier-hover);
+			color: var(--text-normal);
+		}
+	`;
+  document.head.appendChild(el);
+}
 
 export class SyncModal extends Modal {
   private candidates: SyncCandidate[];
@@ -26,22 +143,24 @@ export class SyncModal extends Modal {
   }
 
   onOpen() {
+    injectStyles();
+
     const { contentEl } = this;
     contentEl.empty();
+    contentEl.addClass("boox-modal");
 
-    // Title
     contentEl.createEl("h2", { text: "Boox Notes Sync" });
 
-    // Summary line
     const newCount = this.candidates.filter((c) => c.status === "new").length;
     const changedCount = this.candidates.filter(
       (c) => c.status === "changed",
     ).length;
 
+    // Empty state
     if (this.candidates.length === 0) {
       contentEl.createEl("p", {
         text: "✓ Everything is up to date. No new or changed notes found.",
-        cls: "boox-sync-empty",
+        cls: "boox-summary",
       });
       new Setting(contentEl).addButton((btn) =>
         btn.setButtonText("Close").onClick(() => this.close()),
@@ -49,50 +168,36 @@ export class SyncModal extends Modal {
       return;
     }
 
+    // Summary
     contentEl.createEl("p", {
       text: `Found ${newCount} new and ${changedCount} changed note(s) on your Boox device.`,
-      cls: "boox-sync-summary",
+      cls: "boox-summary",
     });
 
-    // Select all / deselect all
-    new Setting(contentEl)
-      .setName("Selection")
-      .addButton((btn) =>
-        btn.setButtonText("Select All").onClick(() => {
-          this.candidates.forEach((c) => (c.selected = true));
-          this.refresh();
-        }),
-      )
-      .addButton((btn) =>
-        btn.setButtonText("Deselect All").onClick(() => {
-          this.candidates.forEach((c) => (c.selected = false));
-          this.refresh();
-        }),
-      );
+    // Select all / Deselect all
+    const actions = contentEl.createEl("div", { cls: "boox-actions" });
+    const selectAllBtn = actions.createEl("button", { text: "Select All" });
+    const deselectAllBtn = actions.createEl("button", { text: "Deselect All" });
 
-    // Divider
-    contentEl.createEl("hr");
+    selectAllBtn.addEventListener("click", () => {
+      this.candidates.forEach((c) => (c.selected = true));
+      this.refresh();
+    });
+    deselectAllBtn.addEventListener("click", () => {
+      this.candidates.forEach((c) => (c.selected = false));
+      this.refresh();
+    });
 
-    // New notes section
-    const newNotes = this.candidates.filter((c) => c.status === "new");
-    if (newNotes.length > 0) {
-      contentEl.createEl("h3", { text: `🆕 New (${newNotes.length})` });
-      this.renderCandidateList(contentEl, newNotes);
+    // Note list
+    const list = contentEl.createEl("div", { cls: "boox-list" });
+    for (const candidate of this.candidates) {
+      this.renderItem(list, candidate);
     }
-
-    // Changed notes section
-    const changedNotes = this.candidates.filter((c) => c.status === "changed");
-    if (changedNotes.length > 0) {
-      contentEl.createEl("h3", { text: `✏️ Changed (${changedNotes.length})` });
-      this.renderCandidateList(contentEl, changedNotes);
-    }
-
-    contentEl.createEl("hr");
 
     // Sync button
     new Setting(contentEl).addButton((btn) => {
       btn
-        .setButtonText(`Sync Selected`)
+        .setButtonText("Sync Selected")
         .setCta()
         .onClick(async () => {
           if (this.isSyncing) return;
@@ -115,24 +220,45 @@ export class SyncModal extends Modal {
     });
   }
 
-  private renderCandidateList(container: HTMLElement, notes: SyncCandidate[]) {
-    for (const candidate of notes) {
-      const setting = new Setting(container)
-        .setName(candidate.name)
-        .setDesc(this.formatMeta(candidate))
-        .addToggle((toggle) => {
-          toggle.setValue(candidate.selected).onChange((val) => {
-            candidate.selected = val;
-          });
-        });
-      setting.settingEl.addClass("boox-sync-item");
-    }
+  private renderItem(list: HTMLElement, candidate: SyncCandidate) {
+    const row = list.createEl("div", { cls: "boox-item" });
+
+    const checkbox = row.createEl("input", { type: "checkbox" } as any);
+    checkbox.checked = candidate.selected;
+    checkbox.addEventListener("change", () => {
+      candidate.selected = checkbox.checked;
+    });
+
+    const body = row.createEl("div", { cls: "boox-item-body" });
+
+    const top = body.createEl("div", { cls: "boox-item-top" });
+    top.createEl("span", {
+      text: candidate.status,
+      cls: `boox-badge boox-badge-${candidate.status}`,
+    });
+    top.createEl("span", {
+      text: candidate.name,
+      cls: "boox-item-name",
+    });
+
+    body.createEl("div", {
+      text: this.formatMeta(candidate),
+      cls: "boox-item-meta",
+    });
+
+    // Click anywhere on the row (except checkbox) to toggle
+    row.addEventListener("click", (e) => {
+      if (e.target === checkbox) return;
+      checkbox.checked = !checkbox.checked;
+      candidate.selected = checkbox.checked;
+    });
   }
 
   private formatMeta(f: SyncCandidate): string {
     const date = new Date(f.updatedAt).toLocaleString();
     const kb = Math.round(f.size / 1024);
-    return `${kb} KB · Last modified: ${date}`;
+    const folder = f.notebookFolder ? `📁 ${f.notebookFolder} · ` : "";
+    return `${folder}${kb} KB · ${date}`;
   }
 
   private refresh() {

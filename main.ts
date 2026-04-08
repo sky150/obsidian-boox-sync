@@ -21,15 +21,17 @@ import { SyncCandidate, SyncModal } from "./syncModal";
 interface BooxSyncSettings {
   booxIp: string;
   booxPort: number;
-  booxSourceDir: string; // path on device, e.g. /storage/emulated/0/note/obsidian-sync
+  booxSourceDir: string; // root notes folder on device: /storage/emulated/0/note
   vaultTargetDir: string; // folder in vault, e.g. boox
+  mirrorFolders: boolean; // if true: boox/FolderName/note.pdf — if false: boox/note.pdf
 }
 
 const DEFAULT_SETTINGS: BooxSyncSettings = {
   booxIp: "",
   booxPort: 8085,
-  booxSourceDir: "/storage/emulated/0/note/obsidian-sync",
+  booxSourceDir: "/storage/emulated/0/note",
   vaultTargetDir: "boox",
+  mirrorFolders: true,
 };
 
 // ─── Plugin ───────────────────────────────────────────────────────────────────
@@ -85,19 +87,21 @@ export default class BooxSyncPlugin extends Plugin {
       return;
     }
 
-    // 3. Fetch file list from device
+    // 3. Fetch file list recursively from all subfolders
     let deviceFiles: BooxFile[];
     try {
-      deviceFiles = await client.listFiles(this.settings.booxSourceDir);
+      const scanNotice = new Notice("Boox Sync: Scanning notes...", 0);
+      deviceFiles = await client.listAllNotes(this.settings.booxSourceDir);
+      scanNotice.hide();
     } catch (e) {
-      new Notice(`Boox Sync: Failed to list files — ${e.message}`, 6000);
+      new Notice(`Boox Sync: Failed to scan notes — ${e.message}`, 6000);
       return;
     }
 
     if (deviceFiles.length === 0) {
       new Notice(
-        `Boox Sync: No PDF files found in ${this.settings.booxSourceDir}.\n` +
-          "Export your notes to that folder on the device first.",
+        `Boox Sync: No exported PDFs found under ${this.settings.booxSourceDir}.\n` +
+          "Export your notes as PDF (Vector) from the Boox Notes app first.",
         8000,
       );
       return;
@@ -114,7 +118,10 @@ export default class BooxSyncPlugin extends Plugin {
 
   /**
    * For each file on the device, check if it exists in the vault.
-   * Mark as "new" or "changed" accordingly.
+   * Vault path mirrors the notebook folder structure if mirrorFolders is on:
+   *   boox/FolderName/note.pdf
+   * Otherwise flat:
+   *   boox/note.pdf
    */
   private async buildCandidates(
     deviceFiles: BooxFile[],
@@ -122,32 +129,31 @@ export default class BooxSyncPlugin extends Plugin {
     const candidates: SyncCandidate[] = [];
 
     for (const file of deviceFiles) {
-      const vaultPath = normalizePath(
-        `${this.settings.vaultTargetDir}/${file.name}`,
-      );
+      const vaultPath = this.vaultPathFor(file);
       const existing = this.app.vault.getAbstractFileByPath(vaultPath);
 
       if (!existing) {
-        // File doesn't exist in vault → new
         candidates.push({ ...file, status: "new", selected: true });
       } else if (existing instanceof TFile) {
-        // File exists — check if device version is newer
-        const vaultModTime = existing.stat.mtime;
-        if (file.updatedAt > vaultModTime) {
+        if (file.updatedAt > existing.stat.mtime) {
           candidates.push({ ...file, status: "changed", selected: true });
         }
-        // If vault is same age or newer → skip entirely (already synced)
       }
     }
 
     return candidates;
   }
 
-  /**
-   * Download each selected file and write it to the vault.
-   */
+  private vaultPathFor(file: BooxFile): string {
+    if (this.settings.mirrorFolders && file.notebookFolder) {
+      return normalizePath(
+        `${this.settings.vaultTargetDir}/${file.notebookFolder}/${file.name}`,
+      );
+    }
+    return normalizePath(`${this.settings.vaultTargetDir}/${file.name}`);
+  }
+
   private async downloadAndSave(client: BooxClient, selected: SyncCandidate[]) {
-    // Ensure target folder exists
     await this.ensureFolder(this.settings.vaultTargetDir);
 
     let successCount = 0;
@@ -156,16 +162,19 @@ export default class BooxSyncPlugin extends Plugin {
     for (const candidate of selected) {
       try {
         const data = await client.downloadFile(candidate.path);
-        const vaultPath = normalizePath(
-          `${this.settings.vaultTargetDir}/${candidate.name}`,
-        );
-        const existing = this.app.vault.getAbstractFileByPath(vaultPath);
+        const vaultPath = this.vaultPathFor(candidate);
 
+        // Ensure subfolder exists if mirroring
+        if (this.settings.mirrorFolders && candidate.notebookFolder) {
+          await this.ensureFolder(
+            `${this.settings.vaultTargetDir}/${candidate.notebookFolder}`,
+          );
+        }
+
+        const existing = this.app.vault.getAbstractFileByPath(vaultPath);
         if (existing instanceof TFile) {
-          // Overwrite existing file
           await this.app.vault.modifyBinary(existing, data);
         } else {
-          // Create new file
           await this.app.vault.createBinary(vaultPath, data);
         }
 
@@ -175,15 +184,13 @@ export default class BooxSyncPlugin extends Plugin {
       }
     }
 
-    // Show result
     if (errors.length === 0) {
       new Notice(
         `Boox Sync: ✓ Synced ${successCount} note(s) to /${this.settings.vaultTargetDir}`,
       );
     } else {
       new Notice(
-        `Boox Sync: Synced ${successCount}/${selected.length} notes.\n` +
-          `Errors:\n${errors.join("\n")}`,
+        `Boox Sync: Synced ${successCount}/${selected.length} notes.\nErrors:\n${errors.join("\n")}`,
         10000,
       );
     }
@@ -228,8 +235,8 @@ class BooxSyncSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h1", { text: "Boox Sync Settings" });
-    containerEl.createEl("span", {
+    containerEl.createEl("h2", { text: "Boox Sync Settings" });
+    containerEl.createEl("p", {
       text: "Make sure BooxDrop is enabled on your device and both devices are on the same WiFi network.",
       cls: "setting-item-description",
     });
@@ -271,14 +278,14 @@ class BooxSyncSettingTab extends PluginSettingTab {
 
     // Source folder on device
     new Setting(containerEl)
-      .setName("Notes Folder on Device")
+      .setName("Notes Root Folder on Device")
       .setDesc(
-        "Absolute path to the folder on your Boox where you export notes. " +
-          "Export your handwritten notes as PDF (Vector) to this folder.",
+        "Root path of the Notes app on your Boox. All subfolders are scanned recursively. " +
+          "Default is correct for most devices — only change if your firmware differs.",
       )
       .addText((text) =>
         text
-          .setPlaceholder("/storage/emulated/0/note/obsidian-sync")
+          .setPlaceholder("/storage/emulated/0/note")
           .setValue(this.plugin.settings.booxSourceDir)
           .onChange(async (value) => {
             this.plugin.settings.booxSourceDir = value.trim();
@@ -304,8 +311,25 @@ class BooxSyncSettingTab extends PluginSettingTab {
           }),
       );
 
+    // Mirror folder structure
+    new Setting(containerEl)
+      .setName("Mirror Notebook Folders")
+      .setDesc(
+        "If enabled, notes keep their notebook folder structure in the vault. " +
+          "E.g. a note in 'Meetings' on Boox → boox/Meetings/note.pdf. " +
+          "If disabled, all notes go flat into the target folder.",
+      )
+      .addToggle((toggle) =>
+        toggle
+          .setValue(this.plugin.settings.mirrorFolders)
+          .onChange(async (value) => {
+            this.plugin.settings.mirrorFolders = value;
+            await this.plugin.saveSettings();
+          }),
+      );
+
     // Test connection button
-    containerEl.createEl("h2", { text: "Connection" });
+    containerEl.createEl("h3", { text: "Connection" });
     new Setting(containerEl)
       .setName("Test Connection")
       .setDesc("Check if your Boox device is reachable on the current network.")
@@ -325,8 +349,8 @@ class BooxSyncSettingTab extends PluginSettingTab {
           btn.setButtonText("Test").setDisabled(false);
           new Notice(
             ok
-              ? `Connected to ${this.plugin.settings.booxIp}:${this.plugin.settings.booxPort}`
-              : `Cannot reach device. Is BooxDrop active?`,
+              ? `✓ Connected to ${this.plugin.settings.booxIp}:${this.plugin.settings.booxPort}`
+              : `✗ Cannot reach device. Is BooxDrop active?`,
             5000,
           );
         }),
@@ -337,9 +361,9 @@ class BooxSyncSettingTab extends PluginSettingTab {
     const steps = containerEl.createEl("ol");
     [
       "On your Boox: open a note → top-right menu → Export → choose PDF (Vector).",
-      `Save the exported PDF to the folder you configured above (default: note/obsidian-sync/).`,
-      "On your Boox Tablet make sure BooxDrop is active.",
-      'Click the "Sync Boox Notes" Button to start the process.',
+      "The exported PDF can be anywhere inside the Notes app — all folders are scanned automatically.",
+      "Make sure BooxDrop is active on your Boox device (swipe down → transfer icon).",
+      'Click the tablet icon in the Obsidian ribbon, or run "Sync Boox Notes" from the Command Palette.',
       "Select which notes to sync in the dialog and click Sync Selected.",
     ].forEach((step) => steps.createEl("li", { text: step }));
   }
