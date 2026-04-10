@@ -547,7 +547,7 @@ var BooxSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
       })
     );
     new import_obsidian2.Setting(containerEl).setName("Notes Root Folder on Device").setDesc(
-      "Root path of the Notes app on your Boox. All subfolders are scanned recursively. Default is correct for most devices \u2014 only change if your firmware differs."
+      "Root path of the Notes app on your Boox. Only change if your firmware differs."
     ).addText(
       (text) => text.setPlaceholder("/storage/emulated/0/note").setValue(this.plugin.settings.booxSourceDir).onChange(async (value) => {
         this.plugin.settings.booxSourceDir = value.trim();
@@ -594,10 +594,10 @@ var BooxSyncSettingTab = class extends import_obsidian2.PluginSettingTab {
     containerEl.createEl("h3", { text: "How to use" });
     const steps = containerEl.createEl("ol");
     [
-      "On your Boox: open a note \u2192 top-right menu \u2192 Export \u2192 choose PDF (Vector).",
-      "The exported PDF can be anywhere inside the Notes app \u2014 all folders are scanned automatically.",
-      "Make sure BooxDrop is active on your Boox device (swipe down \u2192 transfer icon).",
-      'Click the tablet icon in the Obsidian ribbon, or run "Sync Boox Notes" from the Command Palette.',
+      "On your Boox export a note (Format: PDF or PNG).",
+      "The exported PDF can be anywhere inside the storage, since all folders are scanned automatically.",
+      "Make sure BooxDrop is active on your Boox device (swipe down \u2192 click on BOOXDrop).",
+      'Run "Sync Boox Notes" from the Command Palette.',
       "Select which notes to sync in the dialog and click Sync Selected."
     ].forEach((step) => steps.createEl("li", { text: step }));
   }
