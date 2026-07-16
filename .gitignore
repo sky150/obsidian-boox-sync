@@ -1,1 +1,4 @@
 node_modules/
+.aider*
+main.js
+data.json

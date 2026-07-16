@@ -16,14 +16,12 @@ import {
 import { BooxClient, BooxFile } from "./booxClient";
 import { SyncCandidate, SyncModal } from "./syncModal";
 
-// ─── Settings ────────────────────────────────────────────────────────────────
-
 interface BooxSyncSettings {
   booxIp: string;
   booxPort: number;
-  booxSourceDir: string; // root notes folder on device: /storage/emulated/0/note
-  vaultTargetDir: string; // folder in vault, e.g. boox
-  mirrorFolders: boolean; // if true: boox/FolderName/note.pdf — if false: boox/note.pdf
+  booxSourceDir: string;
+  vaultTargetDir: string;
+  mirrorFolders: boolean;
 }
 
 const DEFAULT_SETTINGS: BooxSyncSettings = {
@@ -34,36 +32,43 @@ const DEFAULT_SETTINGS: BooxSyncSettings = {
   mirrorFolders: true,
 };
 
-// ─── Plugin ───────────────────────────────────────────────────────────────────
+const IPV4_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/;
+
+function isValidIp(ip: string): boolean {
+  if (!IPV4_REGEX.test(ip)) return false;
+  return ip.split(".").every((octet) => {
+    const n = parseInt(octet, 10);
+    return n >= 0 && n <= 255;
+  });
+}
+
+function getErrorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  return String(e);
+}
 
 export default class BooxSyncPlugin extends Plugin {
-  settings: BooxSyncSettings;
+  settings: BooxSyncSettings = { ...DEFAULT_SETTINGS };
 
-  async onload() {
+  override async onload() {
     await this.loadSettings();
 
-    // Ribbon icon (left sidebar)
     this.addRibbonIcon("tablet-smartphone", "Sync Boox Notes", () => {
       this.runSync();
     });
 
-    // Command palette entry
     this.addCommand({
       id: "sync-boox-notes",
       name: "Sync Boox Notes",
       callback: () => this.runSync(),
     });
 
-    // Settings tab
     this.addSettingTab(new BooxSyncSettingTab(this.app, this));
   }
 
-  onunload() {}
-
-  // ─── Core sync flow ────────────────────────────────────────────────────────
+  override onunload() {}
 
   async runSync() {
-    // 1. Validate settings
     if (!this.settings.booxIp) {
       new Notice(
         "Boox Sync: Please set your Boox IP address in the plugin settings.",
@@ -71,11 +76,17 @@ export default class BooxSyncPlugin extends Plugin {
       return;
     }
 
+    if (!isValidIp(this.settings.booxIp)) {
+      new Notice(
+        "Boox Sync: Invalid IP address. Please enter a valid IPv4 address (e.g. 192.168.1.45).",
+      );
+      return;
+    }
+
     const client = new BooxClient(this.settings.booxIp, this.settings.booxPort);
 
-    // 2. Check connectivity
     const notice = new Notice("Boox Sync: Connecting to device...", 0);
-    const reachable = await client.isReachable();
+    const reachable = await client.isReachable(this.settings.booxSourceDir);
     notice.hide();
 
     if (!reachable) {
@@ -87,14 +98,13 @@ export default class BooxSyncPlugin extends Plugin {
       return;
     }
 
-    // 3. Fetch file list recursively from all subfolders
     let deviceFiles: BooxFile[];
     try {
       const scanNotice = new Notice("Boox Sync: Scanning notes...", 0);
       deviceFiles = await client.listAllNotes(this.settings.booxSourceDir);
       scanNotice.hide();
     } catch (e) {
-      new Notice(`Boox Sync: Failed to scan notes — ${e.message}`, 6000);
+      new Notice(`Boox Sync: Failed to scan notes — ${getErrorMessage(e)}`, 6000);
       return;
     }
 
@@ -107,22 +117,13 @@ export default class BooxSyncPlugin extends Plugin {
       return;
     }
 
-    // 4. Compare with vault — determine new / changed
     const candidates = await this.buildCandidates(deviceFiles);
 
-    // 5. Open modal for user to select which to sync
     new SyncModal(this.app, candidates, async (selected) => {
       await this.downloadAndSave(client, selected);
     }).open();
   }
 
-  /**
-   * For each file on the device, check if it exists in the vault.
-   * Vault path mirrors the notebook folder structure if mirrorFolders is on:
-   *   boox/FolderName/note.pdf
-   * Otherwise flat:
-   *   boox/note.pdf
-   */
   private async buildCandidates(
     deviceFiles: BooxFile[],
   ): Promise<SyncCandidate[]> {
@@ -158,13 +159,14 @@ export default class BooxSyncPlugin extends Plugin {
 
     let successCount = 0;
     const errors: string[] = [];
+    const progressNotice = new Notice(`Boox Sync: 0/${selected.length}...`, 0);
 
-    for (const candidate of selected) {
+    for (let i = 0; i < selected.length; i++) {
+      const candidate = selected[i];
       try {
         const data = await client.downloadFile(candidate.path);
         const vaultPath = this.vaultPathFor(candidate);
 
-        // Ensure subfolder exists if mirroring
         if (this.settings.mirrorFolders && candidate.notebookFolder) {
           await this.ensureFolder(
             `${this.settings.vaultTargetDir}/${candidate.notebookFolder}`,
@@ -180,13 +182,19 @@ export default class BooxSyncPlugin extends Plugin {
 
         successCount++;
       } catch (e) {
-        errors.push(`${candidate.name}: ${e.message}`);
+        errors.push(`${candidate.name}: ${getErrorMessage(e)}`);
       }
+
+      progressNotice.setMessage(
+        `Boox Sync: ${i + 1}/${selected.length}...`,
+      );
     }
+
+    progressNotice.hide();
 
     if (errors.length === 0) {
       new Notice(
-        `Boox Sync: ✓ Synced ${successCount} note(s) to /${this.settings.vaultTargetDir}`,
+        `Boox Sync: Synced ${successCount} note(s) to /${this.settings.vaultTargetDir}`,
       );
     } else {
       new Notice(
@@ -194,23 +202,25 @@ export default class BooxSyncPlugin extends Plugin {
         10000,
       );
     }
+
+    this.app.workspace.trigger("resize");
   }
 
-  /**
-   * Create a folder in the vault if it doesn't exist yet.
-   */
   private async ensureFolder(folderPath: string) {
     const parts = folderPath.split("/").filter(Boolean);
     let current = "";
     for (const part of parts) {
       current = current ? `${current}/${part}` : part;
-      if (!this.app.vault.getAbstractFileByPath(current)) {
+      if (this.app.vault.getAbstractFileByPath(current)) continue;
+      try {
         await this.app.vault.createFolder(current);
+      } catch (e) {
+        if (!getErrorMessage(e).includes("already exists")) {
+          throw e;
+        }
       }
     }
   }
-
-  // ─── Settings persistence ──────────────────────────────────────────────────
 
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -220,8 +230,6 @@ export default class BooxSyncPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 }
-
-// ─── Settings Tab ─────────────────────────────────────────────────────────────
 
 class BooxSyncSettingTab extends PluginSettingTab {
   plugin: BooxSyncPlugin;
@@ -241,11 +249,10 @@ class BooxSyncSettingTab extends PluginSettingTab {
       cls: "setting-item-description",
     });
 
-    // IP address
     new Setting(containerEl)
       .setName("Boox Device IP")
       .setDesc(
-        "The IP address shown in the BooxDrop app on your device (e.g. 192.168.1.45).",
+        "The IPv4 address shown in the BooxDrop app on your device (e.g. 192.168.1.45).",
       )
       .addText((text) =>
         text
@@ -257,7 +264,6 @@ class BooxSyncSettingTab extends PluginSettingTab {
           }),
       );
 
-    // Port
     new Setting(containerEl)
       .setName("BooxDrop Port")
       .setDesc(
@@ -276,7 +282,6 @@ class BooxSyncSettingTab extends PluginSettingTab {
           }),
       );
 
-    // Source folder on device
     new Setting(containerEl)
       .setName("Notes Root Folder on Device")
       .setDesc(
@@ -292,7 +297,6 @@ class BooxSyncSettingTab extends PluginSettingTab {
           }),
       );
 
-    // Target folder in vault
     new Setting(containerEl)
       .setName("Vault Target Folder")
       .setDesc(
@@ -310,7 +314,6 @@ class BooxSyncSettingTab extends PluginSettingTab {
           }),
       );
 
-    // Mirror folder structure
     new Setting(containerEl)
       .setName("Mirror Notebook Folders")
       .setDesc(
@@ -327,7 +330,6 @@ class BooxSyncSettingTab extends PluginSettingTab {
           }),
       );
 
-    // Test connection button
     containerEl.createEl("h3", { text: "Connection" });
     new Setting(containerEl)
       .setName("Test Connection")
@@ -338,24 +340,26 @@ class BooxSyncSettingTab extends PluginSettingTab {
             new Notice("Please enter a device IP first.");
             return;
           }
+          if (!isValidIp(this.plugin.settings.booxIp)) {
+            new Notice("Invalid IP address format.");
+            return;
+          }
           btn.setButtonText("Testing...").setDisabled(true);
-          const { BooxClient } = await import("./booxClient");
           const client = new BooxClient(
             this.plugin.settings.booxIp,
             this.plugin.settings.booxPort,
           );
-          const ok = await client.isReachable();
+          const ok = await client.isReachable(this.plugin.settings.booxSourceDir);
           btn.setButtonText("Test").setDisabled(false);
           new Notice(
             ok
-              ? `✓ Connected to ${this.plugin.settings.booxIp}:${this.plugin.settings.booxPort}`
-              : `✗ Cannot reach device. Is BooxDrop active?`,
+              ? `Connected to ${this.plugin.settings.booxIp}:${this.plugin.settings.booxPort}`
+              : `Cannot reach device. Is BooxDrop active?`,
             5000,
           );
         }),
       );
 
-    // Workflow hint
     containerEl.createEl("h3", { text: "How to use" });
     const steps = containerEl.createEl("ol");
     [

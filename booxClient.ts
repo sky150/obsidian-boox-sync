@@ -6,11 +6,11 @@
 
 export interface BooxFile {
   name: string;
-  path: string; // absolute path on device e.g. /storage/emulated/0/note/MyFolder/MyNote.pdf
+  path: string;
   size: number;
-  updatedAt: number; // unix timestamp in ms
+  updatedAt: number;
   dir: boolean;
-  notebookFolder?: string; // human-readable subfolder name, e.g. "MyFolder"
+  notebookFolder?: string;
 }
 
 export interface BooxStorageResponse {
@@ -24,6 +24,8 @@ export interface BooxStorageResponse {
   };
 }
 
+const REQUEST_TIMEOUT_MS = 30_000;
+
 export class BooxClient {
   private baseUrl: string;
 
@@ -31,36 +33,52 @@ export class BooxClient {
     this.baseUrl = `http://${ip}:${port}`;
   }
 
-  /**
-   * List contents of a single directory (files + subdirs).
-   * Internal helper used by listAllNotes.
-   */
-  private async listDir(dir: string): Promise<BooxFile[]> {
-    const args = JSON.stringify({
-      dir,
-      limit: 200,
-      offset: 0,
-      sortBy: "CreationTime",
-      sortOrder: "Desc",
-      refresh: true,
-    });
+  async listDir(dir: string): Promise<BooxFile[]> {
+    const allEntries: BooxFile[] = [];
+    let offset = 0;
+    const limit = 200;
 
-    const url = `${this.baseUrl}/api/storage?args=${encodeURIComponent(args)}`;
-    const response = await fetch(url);
+    while (true) {
+      const args = JSON.stringify({
+        dir,
+        limit,
+        offset,
+        sortBy: "CreationTime",
+        sortOrder: "Desc",
+        refresh: true,
+      });
 
-    if (!response.ok) return [];
+      const url = `${this.baseUrl}/api/storage?args=${encodeURIComponent(args)}`;
+      const response = await fetch(url, {
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
 
-    const json: BooxStorageResponse = await response.json();
-    if (!json.successful) return [];
+      if (!response.ok) {
+        throw new Error(
+          `BooxDrop API returned HTTP ${response.status} for directory "${dir}"`,
+        );
+      }
 
-    return json.data.list;
+      const json: BooxStorageResponse = await response.json();
+      if (!json.successful) {
+        throw new Error(
+          `BooxDrop API returned unsuccessful response (code ${json.code}) for directory "${dir}"`,
+        );
+      }
+
+      const page = json.data.list;
+      allEntries.push(...page);
+
+      if (allEntries.length >= json.data.count || page.length < limit) {
+        break;
+      }
+
+      offset += limit;
+    }
+
+    return allEntries;
   }
 
-  /**
-   * Recursively find all exported PDFs under the notes root.
-   * True DFS — goes into every subfolder no matter how deep.
-   * notebookFolder tracks the full relative path, e.g. "Work/Meetings/Q1"
-   */
   async listAllNotes(notesRoot: string): Promise<BooxFile[]> {
     const allPdfs: BooxFile[] = [];
     await this.traverseDir(notesRoot, "", allPdfs);
@@ -75,7 +93,6 @@ export class BooxClient {
     const entries = await this.listDir(absoluteDir);
 
     for (const entry of entries) {
-      // Build absolute path ourselves — don't rely on entry.path for dirs
       const entryAbsPath = absoluteDir + "/" + entry.name;
 
       if (entry.dir) {
@@ -93,13 +110,11 @@ export class BooxClient {
     }
   }
 
-  /**
-   * Download a file from the Boox device.
-   * Returns an ArrayBuffer of the raw file bytes.
-   */
   async downloadFile(devicePath: string): Promise<ArrayBuffer> {
     const url = `${this.baseUrl}/api/storage/file?args=${encodeURIComponent(devicePath)}&sender=web`;
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
 
     if (!response.ok) {
       throw new Error(
@@ -110,14 +125,10 @@ export class BooxClient {
     return response.arrayBuffer();
   }
 
-  /**
-   * Quick connectivity check — tries to list the root storage.
-   * Returns true if device is reachable, false otherwise.
-   */
-  async isReachable(): Promise<boolean> {
+  async isReachable(dir: string = "/storage/emulated/0"): Promise<boolean> {
     try {
       const args = JSON.stringify({
-        dir: "/storage/emulated/0",
+        dir,
         limit: 1,
         offset: 0,
         sortBy: "CreationTime",

@@ -13,7 +13,6 @@ export interface SyncCandidate extends BooxFile {
 
 export type SyncCallback = (selected: SyncCandidate[]) => Promise<void>;
 
-// Injected once into document.head — idempotent
 function injectStyles() {
   const ID = "boox-sync-styles";
   if (document.getElementById(ID)) return;
@@ -131,10 +130,16 @@ function injectStyles() {
   document.head.appendChild(el);
 }
 
+function getErrorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  return String(e);
+}
+
 export class SyncModal extends Modal {
   private candidates: SyncCandidate[];
   private onSync: SyncCallback;
   private isSyncing = false;
+  private checkboxes: HTMLInputElement[] = [];
 
   constructor(app: App, candidates: SyncCandidate[], onSync: SyncCallback) {
     super(app);
@@ -142,12 +147,13 @@ export class SyncModal extends Modal {
     this.onSync = onSync;
   }
 
-  onOpen() {
+  override onOpen() {
     injectStyles();
 
     const { contentEl } = this;
     contentEl.empty();
     contentEl.addClass("boox-modal");
+    this.checkboxes = [];
 
     contentEl.createEl("h2", { text: "Boox Notes Sync" });
 
@@ -156,10 +162,9 @@ export class SyncModal extends Modal {
       (c) => c.status === "changed",
     ).length;
 
-    // Empty state
     if (this.candidates.length === 0) {
       contentEl.createEl("p", {
-        text: "✓ Everything is up to date. No new or changed notes found.",
+        text: "Everything is up to date. No new or changed notes found.",
         cls: "boox-summary",
       });
       new Setting(contentEl).addButton((btn) =>
@@ -168,33 +173,29 @@ export class SyncModal extends Modal {
       return;
     }
 
-    // Summary
     contentEl.createEl("p", {
       text: `Found ${newCount} new and ${changedCount} changed note(s) on your Boox device.`,
       cls: "boox-summary",
     });
 
-    // Select all / Deselect all
     const actions = contentEl.createEl("div", { cls: "boox-actions" });
     const selectAllBtn = actions.createEl("button", { text: "Select All" });
     const deselectAllBtn = actions.createEl("button", { text: "Deselect All" });
 
     selectAllBtn.addEventListener("click", () => {
       this.candidates.forEach((c) => (c.selected = true));
-      this.refresh();
+      this.checkboxes.forEach((cb) => (cb.checked = true));
     });
     deselectAllBtn.addEventListener("click", () => {
       this.candidates.forEach((c) => (c.selected = false));
-      this.refresh();
+      this.checkboxes.forEach((cb) => (cb.checked = false));
     });
 
-    // Note list
     const list = contentEl.createEl("div", { cls: "boox-list" });
     for (const candidate of this.candidates) {
       this.renderItem(list, candidate);
     }
 
-    // Sync button
     new Setting(contentEl).addButton((btn) => {
       btn
         .setButtonText("Sync Selected")
@@ -212,7 +213,7 @@ export class SyncModal extends Modal {
             await this.onSync(selected);
             this.close();
           } catch (e) {
-            new Notice(`Sync failed: ${e.message}`);
+            new Notice(`Sync failed: ${getErrorMessage(e)}`);
             btn.setButtonText("Retry").setDisabled(false);
             this.isSyncing = false;
           }
@@ -223,8 +224,11 @@ export class SyncModal extends Modal {
   private renderItem(list: HTMLElement, candidate: SyncCandidate) {
     const row = list.createEl("div", { cls: "boox-item" });
 
-    const checkbox = row.createEl("input", { type: "checkbox" } as any);
+    const checkbox = row.createEl("input");
+    checkbox.type = "checkbox";
     checkbox.checked = candidate.selected;
+    this.checkboxes.push(checkbox);
+
     checkbox.addEventListener("change", () => {
       candidate.selected = checkbox.checked;
     });
@@ -246,7 +250,6 @@ export class SyncModal extends Modal {
       cls: "boox-item-meta",
     });
 
-    // Click anywhere on the row (except checkbox) to toggle
     row.addEventListener("click", (e) => {
       if (e.target === checkbox) return;
       checkbox.checked = !checkbox.checked;
@@ -257,15 +260,11 @@ export class SyncModal extends Modal {
   private formatMeta(f: SyncCandidate): string {
     const date = new Date(f.updatedAt).toLocaleString();
     const kb = Math.round(f.size / 1024);
-    const folder = f.notebookFolder ? `📁 ${f.notebookFolder} · ` : "";
+    const folder = f.notebookFolder ? `${f.notebookFolder} · ` : "";
     return `${folder}${kb} KB · ${date}`;
   }
 
-  private refresh() {
-    this.onOpen();
-  }
-
-  onClose() {
+  override onClose() {
     this.contentEl.empty();
   }
 }
