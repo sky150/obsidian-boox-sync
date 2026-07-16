@@ -1,11 +1,11 @@
 {
-  "id": "obsidian-boox-sync",
+  "id": "boox-sync",
   "name": "Boox Sync",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
   "description": "Sync handwritten notes from your Onyx Boox device to Obsidian via BooxDrop.",
-  "author": "Natalie",
-  "authorUrl": "",
+  "author": "Natalie Sumbo",
+  "authorUrl": "https://github.com/sky150",
   "fundingUrl": "",
-  "isDesktopOnly": true
+  "isDesktopOnly": false 
 }
