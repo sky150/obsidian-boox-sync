@@ -1,0 +1,107 @@
+.boox-modal { padding: 4px 0; }
+
+.boox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 8px 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.boox-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.boox-item:last-child { border-bottom: none; }
+.boox-item:hover { background: var(--background-modifier-hover); }
+
+.boox-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--interactive-accent);
+}
+
+.boox-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.boox-item-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.boox-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.boox-badge-new {
+  background: var(--color-green);
+  color: #fff;
+}
+
+.boox-badge-changed {
+  background: var(--color-orange);
+  color: #fff;
+}
+
+.boox-item-name {
+  font-size: var(--font-ui-small);
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.boox-item-meta {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.boox-summary {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  margin: 0 0 12px 0;
+}
+
+.boox-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.boox-actions button {
+  font-size: var(--font-ui-smaller);
+  padding: 2px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.boox-actions button:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}

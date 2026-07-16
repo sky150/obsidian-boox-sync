@@ -59,7 +59,7 @@ export class BooxClient {
         );
       }
 
-      const json: BooxStorageResponse = await response.json();
+      const json = (await response.json()) as BooxStorageResponse;
       if (!json.successful) {
         throw new Error(
           `BooxDrop API returned unsuccessful response (code ${json.code}) for directory "${dir}"`,

@@ -54,7 +54,7 @@ export default class BooxSyncPlugin extends Plugin {
     await this.loadSettings();
 
     this.addRibbonIcon("tablet-smartphone", "Sync Boox Notes", () => {
-      this.runSync();
+      void this.runSync();
     });
 
     this.addCommand({
@@ -223,7 +223,8 @@ export default class BooxSyncPlugin extends Plugin {
   }
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const data = (await this.loadData()) as Partial<BooxSyncSettings>;
+    this.settings = { ...DEFAULT_SETTINGS, ...data };
   }
 
   async saveSettings() {
@@ -239,11 +240,21 @@ class BooxSyncSettingTab extends PluginSettingTab {
     this.plugin = plugin;
   }
 
+  getSettingDefinitions(): { name: string; id: string; description: string }[] {
+    return [
+      { name: "Boox Device IP", id: "booxIp", description: "The IPv4 address shown in the BooxDrop app" },
+      { name: "BooxDrop Port", id: "booxPort", description: "Port used by BooxDrop (default 8085)" },
+      { name: "Notes Root Folder on Device", id: "booxSourceDir", description: "Root path of the Notes app on your Boox" },
+      { name: "Vault Target Folder", id: "vaultTargetDir", description: "Folder inside your vault where notes are saved" },
+      { name: "Mirror Notebook Folders", id: "mirrorFolders", description: "Preserve notebook folder structure in the vault" },
+    ];
+  }
+
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "Boox Sync Settings" });
+    new Setting(containerEl).setName("Boox Sync Settings").setHeading();
     containerEl.createEl("p", {
       text: "Make sure BooxDrop is enabled on your device and both devices are on the same WiFi network.",
       cls: "setting-item-description",
@@ -330,7 +341,7 @@ class BooxSyncSettingTab extends PluginSettingTab {
           }),
       );
 
-    containerEl.createEl("h3", { text: "Connection" });
+    new Setting(containerEl).setName("Connection").setHeading();
     new Setting(containerEl)
       .setName("Test Connection")
       .setDesc("Check if your Boox device is reachable on the current network.")
@@ -360,7 +371,7 @@ class BooxSyncSettingTab extends PluginSettingTab {
         }),
       );
 
-    containerEl.createEl("h3", { text: "How to use" });
+    new Setting(containerEl).setName("How to use").setHeading();
     const steps = containerEl.createEl("ol");
     [
       "On your Boox export a note (Format: PDF or PNG).",
