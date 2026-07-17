@@ -15,25 +15,23 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "lts/*"
+          cache: "npm"
 
-      - name: Build
-        id: build
-        run: |
-          npm ci
-          npm run build
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Generate SHA256 checksums
-        run: |
-          sha256sum main.js manifest.json styles.css > SHA256SUMS.txt
+      - name: Build plugin
+        run: npm run build
 
-      - name: Attest release artifacts
-        uses: actions/attest-build-provenance@v2
+      - name: Attest plugin artifacts
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             main.js
@@ -42,10 +40,11 @@ jobs:
 
       - name: Create release
         uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: |
             main.js
             manifest.json
             styles.css
-            SHA256SUMS.txt
           generate_release_notes: true

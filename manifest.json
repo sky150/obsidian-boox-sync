@@ -1,7 +1,7 @@
 {
   "id": "boox-sync",
   "name": "Boox Sync",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minAppVersion": "1.5.0",
   "description": "Sync handwritten notes from your Onyx Boox device to your vault via BooxDrop.",
   "author": "Natalie Sumbo",

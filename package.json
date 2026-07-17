@@ -1,6 +1,6 @@
 {
   "name": "obsidian-boox-sync",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Sync handwritten notes from Onyx Boox device to Obsidian via BooxDrop.",
   "main": "main.js",
   "scripts": {
