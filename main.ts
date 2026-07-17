@@ -254,7 +254,7 @@ class BooxSyncSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    new Setting(containerEl).setName("Boox Sync Settings").setHeading();
+    new Setting(containerEl).setName("Setup").setHeading();
     containerEl.createEl("p", {
       text: "Make sure BooxDrop is enabled on your device and both devices are on the same WiFi network.",
       cls: "setting-item-description",

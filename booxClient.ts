@@ -1,8 +1,11 @@
 /**
  * booxClient.ts
- * Pure HTTP client for the BooxDrop local API.
- * No Obsidian dependency — easy to test independently.
+ * HTTP client for the BooxDrop local API.
+ * Uses Obsidian's requestUrl helper so network requests work across all
+ * Obsidian platforms and respect the recommended API.
  */
+
+import { requestUrl, RequestUrlResponse } from "obsidian";
 
 export interface BooxFile {
   name: string;
@@ -25,6 +28,24 @@ export interface BooxStorageResponse {
 }
 
 const REQUEST_TIMEOUT_MS = 30_000;
+
+async function requestWithTimeout(
+  url: string,
+  timeoutMs: number,
+): Promise<RequestUrlResponse> {
+  let timeoutId = 0;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Request timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([requestUrl({ url, throw: false }), timeout]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 export class BooxClient {
   private baseUrl: string;
@@ -49,17 +70,15 @@ export class BooxClient {
       });
 
       const url = `${this.baseUrl}/api/storage?args=${encodeURIComponent(args)}`;
-      const response = await fetch(url, {
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
+      const response = await requestWithTimeout(url, REQUEST_TIMEOUT_MS);
 
-      if (!response.ok) {
+      if (response.status < 200 || response.status >= 300) {
         throw new Error(
           `BooxDrop API returned HTTP ${response.status} for directory "${dir}"`,
         );
       }
 
-      const json = (await response.json()) as BooxStorageResponse;
+      const json = response.json as BooxStorageResponse;
       if (!json.successful) {
         throw new Error(
           `BooxDrop API returned unsuccessful response (code ${json.code}) for directory "${dir}"`,
@@ -112,17 +131,15 @@ export class BooxClient {
 
   async downloadFile(devicePath: string): Promise<ArrayBuffer> {
     const url = `${this.baseUrl}/api/storage/file?args=${encodeURIComponent(devicePath)}&sender=web`;
-    const response = await fetch(url, {
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    const response = await requestWithTimeout(url, REQUEST_TIMEOUT_MS);
 
-    if (!response.ok) {
+    if (response.status < 200 || response.status >= 300) {
       throw new Error(
         `Failed to download ${devicePath}: HTTP ${response.status}`,
       );
     }
 
-    return response.arrayBuffer();
+    return response.arrayBuffer;
   }
 
   async isReachable(dir: string = "/storage/emulated/0"): Promise<boolean> {
@@ -136,8 +153,8 @@ export class BooxClient {
         refresh: false,
       });
       const url = `${this.baseUrl}/api/storage?args=${encodeURIComponent(args)}`;
-      const response = await fetch(url, { signal: AbortSignal.timeout(3000) });
-      return response.ok;
+      const response = await requestWithTimeout(url, 3000);
+      return response.status >= 200 && response.status < 300;
     } catch {
       return false;
     }
